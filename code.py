@@ -88,6 +88,7 @@ if uploaded_file is not None:
     # Dropdown to select individual model
     selected_model_name = st.selectbox("🔍 Choose a model to display results individually", list(models.keys()))
 
+    # Show results for the selected model
     if selected_model_name:
         model = models[selected_model_name]
         model.fit(X_train, y_train)
@@ -95,30 +96,19 @@ if uploaded_file is not None:
         # Predictions
         y_pred = model.predict(X_test)
 
-        # Engagement Distribution Visualization
-        engaged_count = np.sum(y_pred)
-        not_engaged_count = len(y_pred) - engaged_count
-        engaged_percent = (engaged_count / len(y_pred)) * 100
-        not_engaged_percent = (not_engaged_count / len(y_pred)) * 100
-
-        st.subheader("📊 Engagement Distribution")
-        fig, ax = plt.subplots()
-        ax.pie([engaged_percent, not_engaged_percent], labels=['Engaged', 'Not Engaged'],
-               autopct='%1.1f%%', colors=['green', 'red'], startangle=90)
-        ax.set_title('Engagement Distribution')
-        st.pyplot(fig)
-
         # Metrics
         accuracy = accuracy_score(y_test, y_pred)
         mcc = matthews_corrcoef(y_test, y_pred)
-
+        
         st.write(f"### {selected_model_name} Results")
         st.write(f"✅ **Accuracy:** {accuracy * 100:.2f}%")
         st.write(f"📏 **MCC:** {mcc:.2f}")
 
+        # Classification Report
         st.text("📝 **Classification Report:**")
         st.text(classification_report(y_test, y_pred))
 
+        # Confusion Matrix
         cm = confusion_matrix(y_test, y_pred)
         fig, ax = plt.subplots()
         sns.heatmap(cm, annot=True, fmt='d', cmap='Purples', cbar=False, ax=ax)
@@ -127,37 +117,84 @@ if uploaded_file is not None:
         ax.set_title(f'Confusion Matrix for {selected_model_name}')
         st.pyplot(fig)
 
+        # ROC Curve
         y_probs = model.predict_proba(X_test)[:, 1]
         fpr, tpr, _ = roc_curve(y_test, y_probs)
 
         fig, ax = plt.subplots()
         ax.plot(fpr, tpr, label=f"{selected_model_name} (AUC = {roc_auc_score(y_test, y_probs):.2f})")
-        ax.plot([0, 1], [0, 1], 'k--')
+        ax.plot([0, 1], [0, 1], 'k--')  # Random Guess Line
         ax.set_xlabel('False Positive Rate')
         ax.set_ylabel('True Positive Rate')
         ax.set_title('ROC Curve')
         ax.legend(loc='best')
         st.pyplot(fig)
 
-    # New Customer Prediction Section
-    st.subheader("🧑‍💼 New Customer Prediction")
+    # Train and Evaluate All Models
+if st.button("🚀 Train and Evaluate All Models"):
+    # Create layout for displaying models' results
+    cols = st.columns(2)
+    results = {}
+    
+    for i, (name, model) in enumerate(models.items()):
+        # Train the model
+        model.fit(X_train, y_train)
 
-    # Input form for new customer data
-    with st.form("new_customer_form"):
-        age = st.number_input("Age", min_value=18, max_value=100)
-        balance = st.number_input("Balance", min_value=0.0)
-        duration = st.number_input("Call Duration", min_value=0)
-        campaign = st.number_input("Campaign Contacts", min_value=0)
-        pdays = st.number_input("Days Since Last Contact (-1 if never)", min_value=-1)
-        previous = st.number_input("Previous Contacts", min_value=0)
-        submit = st.form_submit_button("Predict Subscription")
+        # Predictions
+        y_pred = model.predict(X_test)
 
-    if submit:
-        new_customer = np.array([[age, balance, duration, campaign, pdays, previous]])
-        new_customer = scaler.transform(new_customer)  # Normalize input
-        prediction = model.predict(new_customer)[0]
+        # Metrics
+        accuracy = accuracy_score(y_test, y_pred)
+        mcc = matthews_corrcoef(y_test, y_pred)
+        results[name] = (accuracy, mcc)
 
-        if prediction == 1:
-            st.success("✅ The customer is predicted to **subscribe**.")
-        else:
-            st.error("❌ The customer is predicted **not to subscribe**.")
+        with cols[i % 2]:  # Display in columns
+            st.markdown(f"### {name}")
+            st.write(f"✅ **Accuracy:** {accuracy * 100:.2f}%")
+            st.write(f"📏 **MCC:** {mcc:.2f}")
+
+            # Classification Report
+            st.text("📝 **Classification Report:**")
+            st.text(classification_report(y_test, y_pred))
+
+            # Confusion Matrix
+            cm = confusion_matrix(y_test, y_pred)
+            fig, ax = plt.subplots()
+            sns.heatmap(cm, annot=True, fmt='d', cmap='Purples', cbar=False, ax=ax)
+            ax.set_xlabel('Predicted Label')
+            ax.set_ylabel('True Label')
+            ax.set_title(f'Confusion Matrix for {name}')
+            st.pyplot(fig)
+
+            # ROC Curve
+            y_probs = model.predict_proba(X_test)[:, 1]
+            fpr, tpr, _ = roc_curve(y_test, y_probs)
+
+            fig, ax = plt.subplots()
+            ax.plot(fpr, tpr, label=f"{name} (AUC = {roc_auc_score(y_test, y_probs):.2f})")
+            ax.plot([0, 1], [0, 1], 'k--')  # Random Guess Line
+            ax.set_xlabel('False Positive Rate')
+            ax.set_ylabel('True Positive Rate')
+            ax.set_title('ROC Curve')
+            ax.legend(loc='best')
+            st.pyplot(fig)
+
+    # Determine the best model based on accuracy, and use MCC as a tiebreaker
+    best_model_name = None
+    best_accuracy = 0
+    best_mcc = -1  # Lower bound for MCC
+
+    for model_name, (accuracy, mcc) in results.items():
+        # If accuracy is higher, update the best model
+        if accuracy > best_accuracy:
+            best_accuracy = accuracy
+            best_mcc = mcc
+            best_model_name = model_name
+        # If accuracy is the same but MCC is higher, update the best model
+        elif accuracy == best_accuracy and mcc > best_mcc:
+            best_mcc = mcc
+            best_model_name = model_name
+
+    # Display best model message
+    st.markdown(f"## 🏆 The best model is **{best_model_name}** with an accuracy of **{best_accuracy * 100:.2f}%**!")
+    st.write(f"### Reason: {best_model_name} achieved the highest accuracy or, in case of a tie, the highest MCC.")
